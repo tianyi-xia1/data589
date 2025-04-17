@@ -1,15 +1,18 @@
 ---
 title: "Project"
-author: "Tianyi Xia"
+author: "Tianyi Xia, Zetian Zhao, Litao Zheng"
 date: "`r format(Sys.time(), '%d %B, %Y %H:%M:%OS')`"
 output:
   pdf_document: default
 ---
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## Demo for env var
+**Species** =\> `Great Blue Heron`.
+
+## Spatial Analysis
 
 ```{r}
 # Load libraries
@@ -18,19 +21,25 @@ library(sf)
 library(raster)
 ```
 
+## Load the Covariates
+
 ```{r}
 load("BC_Covariates.Rda")
 ls()
 ```
 
+## Summary
+
 ```{r}
 summary(DATA)
 ```
 
+## Pre-process
+
 ```{r}
+# pre-process the csv file
 species_data <- read.delim("species.csv", sep = "\t", header = TRUE)
 species_data <- species_data[, colSums(is.na(species_data)) < nrow(species_data)]
-
 ```
 
 ```{r}
@@ -41,13 +50,16 @@ species_subset <- species_data[, c("scientificName", "decimalLongitude", "decima
 species_clean <- species_subset[!is.na(species_subset$decimalLongitude) & !is.na(species_subset$decimalLatitude), ]
 ```
 
+## Begin Analysis
+
 ```{r}
-load("BC_covariates.Rda")
 window <- DATA$Window
 class(DATA$Window)
 window_sf <- st_as_sf(window)
 window_owin <- as.owin(window_sf)
 ```
+
+## PPP-Object
 
 ```{r}
 # Convert your species coordinates to match the BC window projection
@@ -66,23 +78,73 @@ species_transformed <- spTransform(species_sp, CRS(proj4string(window)))
 transformed_coords <- coordinates(species_transformed)
 
 # Create the ppp object with transformed coordinates
-x_coordiantes <- transformed_coords[,1]
+x_coordinates <- transformed_coords[,1]
 y_coordinates <- transformed_coords[,2]
+
+# make a df for the species
+species_df <- data.frame(x = x_coordinates, y = y_coordinates)
+
+# Check which points are inside the owin window
+inside <- inside.owin(x_coordinates, y_coordinates, window_owin)
+
+# filter the points out that match the window
+species_df <- species_df[inside, ]
+
+# create the ppp-object
 species_ppp <- ppp(
-  x = x_coordiantes,
-  y = y_coordinates,
+  x = species_df$x,
+  y = species_df$y,
   window = window_owin
 )
 
 # plot the window with points
 plot(species_ppp, main = "Species Distribution in BC")
 ```
+
+**Conclusion:**
+
+First impression =\> the distribution is not homo.
+
+## 3D Map with Elevation
+
 ```{r}
-density_map <- density(species_ppp) 
-plot(density_map, main = "Kernel Density of Species Observations")
-points(species_ppp, pch = 21, cex = 0.5, col = "black", bg= "white")
-contour(density_map, add = TRUE)
+# get the elevation from DATA
+elevation <- DATA$Elevation
+figure_3d <- persp(elevation,
+      # horizontal and vertical rotation.
+      theta = 45, 
+      phi = 20,
+      # z-axis expansion (need to be bigger for the BC)
+      expand = 25,
+      # remove border
+      border = NA,
+      # add a base
+      apron = TRUE,
+      # shade intensity
+      shade = 0.4,
+      # axes off.
+      box = FALSE,
+      main = "elevation of the great blue heron",
+      # allow the overlaying for the parks location.
+      visible = TRUE,
+      # use the terrain color pallete which is built-in for R.
+      colmap = terrain.colors(289))
+
+# add the points to the persp plot.
+perspPoints(species_df, Z = elevation, M = figure_3d, pch = 16, cex = 0.5)
 ```
+
+## Elevation class for the specie
+
+```{r}
+plot(cut(elevation, 5, labels = c("low", "median-low", "median", "median-high", "high")), main = "elevation classes for the bc blue heron")
+
+# add points
+points(species_df$x, species_df$y, pch = 16, col = "black")
+```
+
+## Group by distance
+
 ```{r}
 distances <- nndist(species_ppp)
 species_ppp_with_marks <- species_ppp
@@ -96,9 +158,121 @@ points(species_ppp$x, species_ppp$y, pch = 16, col = point_cols)
 text(species_ppp$x, species_ppp$y, labels = round(distances/10000, 0), pos = 3, offset = 0.5, cex = 0.7)
 ```
 
+**Observation:**
 
+Most points are `dark blue` to `purple`, indicating the nearest neighbors are very close. Therefore, the specie tend to cluster in the south of the BC, and most of them are very close. However, the `red` points means that they are far away from their neighbors with `15`, indicating 150 km away from the neighbor.
 
+## Elevation Analysis
 
+```{r}
+library(raster)
+# 1. Convert spatstat::im (elevation) to raster
+elev_raster <- raster(DATA$Elevation)
+# get the elevation for specie
+elevation_sp <- extract(elev_raster, cbind(species_df$x, species_df$y))
+# get the median elevation from the park locations.
+median_ele_sp <- median(elevation_sp, na.rm = TRUE)
+cat("Median elevation of parks in BC is: ", median_ele_sp)
+```
+
+**Conclusion:**
+
+We can see the specie reasonably live in the relatively low elevation area like `low-lying, flat areas`.
+
+```{r}
+kde_sp <- density(elevation_sp, na.rm = TRUE)
+# plot the elevation density for the specie for better visualization
+plot(kde_sp, main = "KDE for blue heron elevations")
+```
+
+```{r}
+# Extract elevation values from the raster for the whole window (entire raster)
+elev_all <- values(elev_raster)
+
+# Extract elevation only at point locations
+library(sp)
+species_sp <- SpatialPoints(
+  coords = data.frame(x = species_ppp$x, y = species_ppp$y),
+  proj4string = CRS(projection(elev_raster))
+)
+elev_points <- extract(elev_raster, species_sp)
+
+# Plot overlaid histograms
+hist(elev_all, col = rgb(0, 0, 1, 0.25), main = "Elevation Histogram",
+     xlab = "Elevation (m)", border = "white", breaks = 30)
+hist(elev_points, col = rgb(1, 0, 0, 0.5), add = TRUE, border = "white", breaks = 30)
+legend("topright", legend = c("Whole BC window", "Species locations"),
+       fill = c(rgb(0,0,1,0.25), rgb(1,0,0,0.5)), border = NA)
+```
+
+**Conclusion:**
+
+Enhance the idea that **most of the specie in the low or median elevation area.**
+
+## Kernel-Density Distribution
+
+```{r}
+density_map <- density(species_ppp) 
+plot(density_map, main = "Kernel Density of Species Observations")
+points(species_ppp, pch = 21, cex = 0.5, col = "black", bg= "white")
+contour(density_map, add = TRUE)
+```
+
+**Conclusion:**
+
+Majority in the south corner and only few in the north.
+
+## Hot Spot
+
+```{r}
+R<-bw.ppl(species_ppp)
+LR<-scanLRTS(species_ppp,r=R)
+plot(LR)
+```
+
+**Observation:**\
+Hot spot not distinct at all, maybe because of the number of records is not sufficient. However, still have little colored points in the south indicate that if we want to see the `blue heron`, better go to the south of BC.
+
+## P-value plot
+
+```{r}
+p_values <- eval.im(pchisq(LR,df = 1,lower.tail = FALSE))
+#Plot the output
+plot(p_values, main = "Local p-values For Blue heron")
+```
+
+## rho plot
+
+```{r}
+#Extract elevation information
+elev <- DATA$Elevation
+#define quartiles
+b <- quantile(elev, probs = (0:4)/4, type = 2)
+#Split image into 4 equal-area quadrats based on elevation values
+Zcut <- cut(elev, breaks = b)
+V <- tess(image = Zcut)
+quadratcount(species_ppp, tess = V)
+```
+
+**Apparently, most of them (8848) are located in low elevation**
+
+```{r}
+rho <- rhohat(species_ppp, elev)
+plot(rho)
+```
+
+## Quadrat Test
+
+```{r}
+# make 10*10 quadrat
+Q <- quadratcount(species_ppp, nx = 10, ny = 10)
+# quadrat test
+quadrat.test(Q)
+```
+
+**Conclusion:**
+
+`p-value` small enough, so reject the null. **The assumption about homo is not met.**
 
 ```{r}
 Q <- quadratcount(species_ppp,
@@ -112,39 +286,9 @@ plot(species_ppp,
      main = "Beilschmiedia pendula locations")
 
 plot(Q, cex = 0.5, col = "red", add = T, font = 2)
-
 ```
+
 ```{r}
 K <- Kest(species_ppp, correction = "border")
 plot(K, main = "Ripley's K-Function")
-
 ```
-```{r}
-library(raster)
-# 1. Convert spatstat::im (elevation) to raster
-elev_raster <- raster(DATA$Elevation)
-
-# 2. Extract elevation values from the raster for the whole window (entire raster)
-elev_all <- values(elev_raster)
-
-# 3. Extract elevation only at point locations
-library(sp)
-species_sp <- SpatialPoints(
-  coords = data.frame(x = species_ppp$x, y = species_ppp$y),
-  proj4string = CRS(projection(elev_raster))
-)
-elev_points <- extract(elev_raster, species_sp)
-
-# 4. Plot overlaid histograms
-hist(elev_all, col = rgb(0, 0, 1, 0.25), main = "Elevation Histogram",
-     xlab = "Elevation (m)", border = "white", breaks = 30)
-hist(elev_points, col = rgb(1, 0, 0, 0.5), add = TRUE, border = "white", breaks = 30)
-legend("topright", legend = c("Whole BC window", "Species locations"),
-       fill = c(rgb(0,0,1,0.25), rgb(1,0,0,0.5)), border = NA)
-
-
-```
-```{r}
-
-```
-
