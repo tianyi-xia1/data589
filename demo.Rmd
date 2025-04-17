@@ -222,26 +222,7 @@ contour(density_map, add = TRUE)
 
 Majority in the south corner and only few in the north.
 
-## Hot Spot
-
-```{r}
-R<-bw.ppl(species_ppp)
-LR<-scanLRTS(species_ppp,r=R)
-plot(LR)
-```
-
-**Observation:**\
-Hot spot not distinct at all, maybe because of the number of records is not sufficient. However, still have little colored points in the south indicate that if we want to see the `blue heron`, better go to the south of BC.
-
-## P-value plot
-
-```{r}
-p_values <- eval.im(pchisq(LR,df = 1,lower.tail = FALSE))
-#Plot the output
-plot(p_values, main = "Local p-values For Blue heron")
-```
-
-## rho plot
+## Quadrat-Count based on elevation
 
 ```{r}
 #Extract elevation information
@@ -255,11 +236,6 @@ quadratcount(species_ppp, tess = V)
 ```
 
 **Apparently, most of them (8848) are located in low elevation**
-
-```{r}
-rho <- rhohat(species_ppp, elev)
-plot(rho)
-```
 
 ## Quadrat Test
 
@@ -288,7 +264,66 @@ plot(species_ppp,
 plot(Q, cex = 0.5, col = "red", add = T, font = 2)
 ```
 
+## K-function
+
 ```{r}
 K <- Kest(species_ppp, correction = "border")
 plot(K, main = "Ripley's K-Function")
 ```
+
+```{r}
+lambda_sp_pos <- density(species_ppp,sigma=bw.ppl,positive=TRUE)
+
+E_sp_inhom <- envelope(species_ppp,
+                        Kinhom,
+                        simulate = expression(rpoispp(lambda_sp_pos)),
+                        correction="border",
+                        rank = 1,
+                        nsim = 19,
+                        fix.n = TRUE)
+
+plot(E_sp_inhom, main = "Specie Location Correlation", lwd = 2)
+```
+
+**Observation:**
+
+The species locations appear randomly distributed, with no significant clustering or repulsion, because the `black line` is located within the CI.
+
+## Check with the Covariates 
+
+```{r, cache=TRUE}
+elevation <- DATA$Elevation
+forest <- DATA$Forest
+# human footprint index
+hfi <- DATA$HFI
+water <- DATA$Dist_Water
+
+rho_elev <- rhohat(species_ppp, elevation)
+rho_forest <- rhohat(species_ppp, forest)
+rho_hfi <- rhohat(species_ppp, hfi)
+rho_water <- rhohat(species_ppp, water)
+
+par(mfrow = c(1,4))
+plot(rho_elev,
+     main = "",
+     xlab = "Elevation (m)")
+plot(rho_forest,
+     main = "",
+     xlab = "Forest Cover")
+plot(rho_hfi,
+     main = "",
+     xlab = "HFI Cover")
+plot(rho_water,
+     main = "",
+     xlab = "Water Cover")
+```
+
+**Conclusion:**
+
+-   For the elevation, specie more located in the low elevation area.
+
+-   For the forest, specie tend to located in the low forest cover as well.
+
+-   For the HFI cover, specie surprisedly tend to live in the area have more human impact.
+
+-   For the water-distanced, the specie tend to live various water condition area, and the distinct peak is around the moderate water distance area.
