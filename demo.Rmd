@@ -304,6 +304,7 @@ rho_hfi <- rhohat(species_ppp, hfi)
 rho_water <- rhohat(species_ppp, water)
 
 par(mfrow = c(1,4))
+
 plot(rho_elev,
      main = "",
      xlab = "Elevation (m)")
@@ -327,3 +328,130 @@ plot(rho_water,
 -   For the HFI cover, specie surprisedly tend to live in the area have more human impact.
 
 -   For the water-distanced, the specie tend to live various water condition area, and the distinct peak is around the moderate water distance area.
+
+
+```{r}
+cor.im(elevation, forest, hfi, water, use = "complete.obs")
+```
+
+```{r}
+fit <- ppm(species_ppp ~ elevation + I(elevation^2) + forest + I(forest^2) + hfi + I(hfi^2) + water + I(water^2))
+fit
+```
+
+```{r}
+fit0 <- ppm(species_ppp ~ 1)
+fit0
+```
+
+```{r}
+AIC(fit)
+AIC(fit0)
+anova(fit, fit0, test = "LRT")
+```
+
+```{r}
+predicted <- predict(fit, type = "trend", n = 512)
+
+log_intensity <- eval.im(log(predicted))
+
+plot(log_intensity,
+     main = "Log-Scaled Fitted Model Intensity",
+     se = FALSE,
+     superimpose = FALSE)
+```
+
+```{r}
+med_elev   <-  median(DATA$Elevation$v,   na.rm=TRUE)
+med_forest <-  median(DATA$Forest$v,      na.rm=TRUE)
+med_hfi    <-  median(DATA$HFI$v,         na.rm=TRUE)
+med_water  <-  median(DATA$Dist_Water$v,  na.rm=TRUE)
+
+cov_medians <- list(
+  elevation       = med_elev,
+  `I(elevation^2)` = med_elev^2,
+  forest          = med_forest,
+  `I(forest^2)`    = med_forest^2,
+  hfi             = med_hfi,
+  `I(hfi^2)`       = med_hfi^2,
+  water           = med_water,
+  `I(water^2)`     = med_water^2
+)
+
+vars  <- c("elevation","forest","hfi","water")
+pairs <- combn(vars, 2, simplify = FALSE)
+
+oldpar <- par(mfrow = c(2, 2))
+
+for(pair in pairs) {
+  v1 <- pair[1]
+  v2 <- pair[2]
+  
+  args1 <- cov_medians
+  args1[[v1]]                     <- NULL
+  args1[[paste0("I(",v1,"^2)")]]  <- NULL
+  
+  ef1 <- do.call(
+    effectfun,
+    c(list(fit, covname = v1, se.fit = FALSE),
+      args1)
+  )
+  plot(ef1,
+       legend = FALSE,
+       ylab   = bquote(lambda(.(as.name(v1)))),
+       main   = paste("Effect of", v1, "at median", v2))
+  
+  args2 <- cov_medians
+  args2[[v2]]                     <- NULL
+  args2[[paste0("I(",v2,"^2)")]]  <- NULL
+  
+  ef2 <- do.call(
+    effectfun,
+    c(list(fit, covname = v2, se.fit = FALSE),
+      args2)
+  )
+  plot(ef2,
+       legend = FALSE,
+       ylab   = bquote(lambda(.(as.name(v2)))),
+       main   = paste("Effect of", v2, "at median", v1))
+}
+
+par(oldpar)
+```
+
+
+```{r}
+par_res_elev <- parres(fit, "elevation")
+
+par_res_forest <- parres(fit, "forest")
+
+par_res_hfi <- parres(fit, "hfi")
+
+par_res_water <- parres(fit, "water")
+
+plot(par_res_elev,
+     legend = FALSE,
+     lwd = 2,
+     main = "",
+     xlab = "Elevation (m)")
+
+plot(par_res_forest,
+     legend = FALSE,
+     lwd = 2,
+     main = "",
+     xlab = "Forest Cover")
+
+plot(par_res_hfi,
+     legend = FALSE,
+     lwd = 2,
+     main = "",
+     xlab = "Human Footprint Index")
+
+plot(par_res_water,
+     legend = FALSE,
+     lwd = 2,
+     main = "",
+     xlab = "Water")
+```
+
+
